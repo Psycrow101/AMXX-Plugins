@@ -1,0 +1,34 @@
+[en]
+MENU_HEADER = Checkpoint spawn menu
+MENU_SPAWN = Spawn
+MENU_REMOVE = Remove last
+MENU_REMOVE_ALL = Remove all
+MENU_SAVE = Save
+MENU_EXIT = Exit
+
+CP_SAVED = Checkpoints has been saved
+CP_COMPLETE = You went through checkpoint %i
+CP_FINISH = You went through the final checkpoint^nand finished at %i place
+CP_CAN_STUCK = The player can be stuck with this checkpoint!
+CP_RETURN = Player ^3%s ^1was returned for a large checkpoint skip!
+CP_REWARD = You are getting ^3%i$
+
+FINISH_AD = Player ^3%s ^1came to the finish on in ^3%i ^1place
+
+[ru]
+MENU_HEADER = Меню расстановки чекпоинтов
+MENU_SPAWN = Установить
+MENU_REMOVE = Удалить последний
+MENU_REMOVE_ALL = Удалить все
+MENU_SAVE = Сохранить
+MENU_EXIT = Выход
+
+CP_SAVED = Сохранено
+CP_COMPLETE = Вы прошли через чекпоинт %i
+CP_FINISH = Вы прошли через последний чекпоинт^nи финишировали на %i месте
+CP_CAN_STUCK = Игрок может застрять у этого чекпоинта!
+CP_RETURN = Игрок ^3%s ^1был возвращены за большой пропуск чекпоинтов!
+CP_REWARD = Вы получаете ^3%i$
+
+FINISH_AD = Игрок ^3%s ^1пришел к финишу на ^3%i ^1месте
+
