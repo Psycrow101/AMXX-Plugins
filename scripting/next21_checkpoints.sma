@@ -444,6 +444,9 @@ public task_return_player(id)
 	
 	if (g_iPlrCompleted[iPlayer] >= g_iCheckpointsNum)
 		g_iPlrCompleted[iPlayer] = -1
+	
+	if (!is_user_alive(iPlayer))
+		remove_task(id)
 		
 	if (!return_player(iPlayer, g_iPlrCompleted[iPlayer]))
 	{
@@ -455,6 +458,9 @@ public task_return_player(id)
 public task_teleport_player(id)
 {
 	new iPlayer = id - TASK_RETURN_PLAYER
+	
+	if (!is_user_alive(iPlayer))
+		remove_task(id)
 	
 	if (g_iPlrCompleted[iPlayer] >= g_iCheckpointsNum || !return_player(iPlayer, g_iPlrCompleted[iPlayer]))
 	{
