@@ -28,7 +28,7 @@ public plugin_init()
 
 public fwd_Spawn_Post(id)
 {
-	if (0 < id < 33)
+	if (is_user_alive(id))
 		g_iFlashBattery[id] = get_pdata_int(id, m_iFlashBattery)
 }
 
