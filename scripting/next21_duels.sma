@@ -688,8 +688,9 @@ create_duel_sprite(const iPlayerId)
 		return 1
 	}
 	
-	engfunc(EngFunc_SetSize, iSprite, Float: {-1.0, -1.0, -1.0} , Float:{1.0, 1.0, 1.0})
+	engfunc(EngFunc_SetSize, iSprite, Float: {-1.0, -1.0, -1.0} , Float: { 1.0, 1.0, 1.0 })
 	engfunc(EngFunc_SetModel, iSprite, SPRITE_DUEL)
+	engfunc(EngFunc_SetOrigin, iSprite, Float: {-8192.0, -8192.0, -8192.0})
 	
 	set_pev(iSprite, pev_effects, Player[iPlayerId][PlrIsAlive] ? 0 : EF_NODRAW)
 	set_pev(iSprite, pev_renderfx, 0)
