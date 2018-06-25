@@ -6,97 +6,140 @@ https://next21.ru/2016/04/hats/
 #include <amxmisc>
 #include <hamsandwich>
 #include <fakemeta>
-#include <WPMGPrintChatColor>
+#include <nvault>
 
-#define PLUG_NAME 		"Hats"
-#define PLUG_AUTH 		"Psycrow"
-#define PLUG_VERS 		"1.4"
+#if AMXX_VERSION_NUM < 183
+	#define client_disconnected client_disconnect
+	#include <colorchat>
+#endif
 
-#define MENUSIZE 		1124
+#define PLUGIN 		"Hats"
+#define AUTHOR 		"Psycrow"
+#define VERSION 	"1.5"
+
 #define HATS_PATH 		"models/next21_hats"
 #define MAX_HATS 		64
 #define VIP_FLAG 		ADMIN_LEVEL_H
+#define VAULT_DAYS 		30
+
+#define MENU_SIZE 		1124
+#define NAME_LEN 		64
+
+#define KEY_HAT_MODEL	"next21_hat_model"
+#define KEY_HAT_PART	"next21_hat_part"
 
 #define MAXSTUDIOBODYPARTS	32
+#define	MENU_KEYS	(1<<0|1<<1|1<<2|1<<3|1<<4|1<<5|1<<6|1<<7|1<<8|1<<9)
 
+enum _:PLAYER_DATA
+{
+	PLR_HAT_ENT,
+	PLR_CURRENT_PAGE,
+	PLR_CURRENT_SUBPAGE,
+	PLR_MENU_PAGES,
+	PLR_HAT_ID,
+	PLR_SUB_ID
+}
 
-new g_bwEnt[33]
+enum _:HAT_DATA
+{
+	HAT_MODEL[NAME_LEN],
+	HAT_NAME[NAME_LEN],
+	HAT_SKINS_NUM,
+	HAT_BODIES_NUM,
+	HAT_BODIES_NAMES[MAXSTUDIOBODYPARTS * NAME_LEN],
+	HAT_VIP_FLAG
+}
 
-new MenuPages, TotalHats
-new CurrentMenu[33], CurrentSubMenu[33], CurrentSubPages[33], CurrentSubId[33]
+new g_ePlayerData[33][PLAYER_DATA], g_eHatData[MAX_HATS][HAT_DATA],
+	g_iPagesNum, g_iTotalHats, g_infoTarget, g_fwChangeHat, g_vaultHat
 
-new UserHatId[33]
-
-new HATMDL[MAX_HATS][128]
-new HATNAME[MAX_HATS][128] // s - skin only, b - bodies only, c - bodies and skin, n - normal hat, t - team skin, o - not connected
-new HATSKINS[MAX_HATS]
-new HATBODIES[MAX_HATS]
-new HATBODIESNAME[MAX_HATS][MAXSTUDIOBODYPARTS][64]
-new HATVIP[MAX_HATS]
-
-new g_InfoTarget, forward_change_hat
 
 public plugin_precache()
 {
-	new cfgDir[32], HatFile[64]
-	get_configsdir(cfgDir, 31)
-	formatex(HatFile, 63, "%s/HatList.ini", cfgDir)
-	command_load(HatFile)
+	new szCfgDir[32], szHatFile[64]
+	get_configsdir(szCfgDir, 31)
+	formatex(szHatFile, 63, "%s/HatList.ini", szCfgDir)
+	load_hats(szHatFile)
 	
-	for (new i = 1; i < TotalHats; ++i)
+	new szCurrentFile[256]
+	for (new i = 1; i < g_iTotalHats; i++)
 	{
-		new CurrFile[256]
-		formatex(CurrFile, charsmax(CurrFile), "%s/%s", HATS_PATH, HATMDL[i])
-
-		precache_model(CurrFile)
-		server_print("[%s] Precached %s", PLUG_NAME, CurrFile)
+		formatex(szCurrentFile, 255, "%s/%s", HATS_PATH, g_eHatData[i][HAT_MODEL])
+		precache_model(szCurrentFile)
+		server_print("[%s] Precached %s", PLUGIN, szCurrentFile)
 	}
+}
+
+public plugin_cfg()
+{
+	g_vaultHat = nvault_open("next21_hat")
+			
+	if (g_vaultHat == INVALID_HANDLE)
+		set_fail_state("Error opening nVault!")
+		
+	nvault_prune(g_vaultHat, 0, get_systime() - (86400 * VAULT_DAYS))
 }
 
 public plugin_init()
 {
-	register_plugin(PLUG_NAME, PLUG_VERS, PLUG_AUTH)
+	register_plugin(PLUGIN, VERSION, AUTHOR)
 		
-	register_concmd("amx_givehat", "Give_Hat", ADMIN_RCON, "<nick> <mdl #> <part #>")
-	register_concmd("amx_removehats", "Remove_All_Hat", ADMIN_RCON, " - Removes hats from everyone.")
+	register_concmd("amx_givehat", "cmd_give_hat", ADMIN_RCON, "<nick> <hat #> <part #>")
+	register_concmd("amx_removehats", "cmd_remove_all_hats", ADMIN_RCON, " - Removes hats from everyone")
 	
-	register_menucmd(register_menuid("\yHat Menu: ["), (1<<0|1<<1|1<<2|1<<3|1<<4|1<<5|1<<6|1<<7|1<<8|1<<9), "MenuCommand")
-	register_menucmd(register_menuid("\yHat Skin ("), (1<<0|1<<1|1<<2|1<<3|1<<4|1<<5|1<<6|1<<7|1<<8|1<<9), "SkinMenuCommand")
-	register_menucmd(register_menuid("\yHat Model ("), (1<<0|1<<1|1<<2|1<<3|1<<4|1<<5|1<<6|1<<7|1<<8|1<<9), "BodyMenuCommand")
+	register_menucmd(register_menuid("\yHat Menu: ["), MENU_KEYS, "menu_handler")
+	register_menucmd(register_menuid("\yHat Skin ("), MENU_KEYS, "menu_skins_handler")
+	register_menucmd(register_menuid("\yHat Model ("), MENU_KEYS, "menu_bodies_handler")
 	
-	register_clcmd("say /hats", "ShowMenu", -1, "Shows Knife menu")
-	register_clcmd("say_team /hats", "ShowMenu", -1, "Shows Knife menu")
-	register_clcmd("hats", "ShowMenu", -1, "Shows Knife menu")
+	register_clcmd("say /hats", "cmd_show_menu", -1, "Shows hats menu")
+	register_clcmd("say_team /hats", "cmd_show_menu", -1, "Shows hats menu")
+	register_clcmd("hats", "cmd_show_menu", -1, "Shows hats menu")
+
+	register_dictionary("next21_hats.txt")
 	
-	forward_change_hat = CreateMultiForward("ka_change_hat", ET_STOP, FP_CELL, FP_CELL)
-	g_InfoTarget = engfunc(EngFunc_AllocString, "info_target")
+	g_fwChangeHat = CreateMultiForward("ka_change_hat", ET_STOP, FP_CELL, FP_CELL)
+	g_infoTarget = engfunc(EngFunc_AllocString, "info_target")
+}
+
+public plugin_end()
+{
+	nvault_close(g_vaultHat)
+	DestroyForward(g_fwChangeHat)
 }
 
 public client_putinserver(id)
 {
-	Remove_Hat(id)
-	
-	new hatMdl[128], smodelpart[2]
-	get_user_info(id, "next21_hat", hatMdl, charsmax(hatMdl))
-	get_user_info(id, "next21_hat_part", smodelpart, charsmax(smodelpart))
+	remove_hat(id)
+
+	new szKey[64], szHatModel[128], szHatPart[3], szAuthid[24]
+
+	get_user_authid(id, szAuthid, 23)
+	formatex(szKey, 63, "%s%s", szAuthid, KEY_HAT_MODEL)
+	nvault_get(g_vaultHat, szKey, szHatModel, 127)
+			
+	formatex(szKey, 63, "%s%s", szAuthid, KEY_HAT_PART)
+	nvault_get(g_vaultHat, szKey, szHatPart, 2)
 											
-	if(!equal(hatMdl, ""))
+	if (szHatModel[0])
 	{
-		if(equal(hatMdl, "!NULL"))
-			Set_Hat(id, 0, id)
+		if (equal(szHatModel, "!NULL"))
+			set_hat(id, 0, id)
 		else
 		{
-			for(new i = 1; i <= TotalHats; i++)
+			for (new i = 1; i < g_iTotalHats; i++)
 			{
-				if(equal(hatMdl, HATMDL[i]))
+				if (equal(szHatModel, g_eHatData[i][HAT_MODEL]))
 				{
-					if(HATVIP[i] && !(get_user_flags(id) & VIP_FLAG))
+					if (g_eHatData[i][HAT_VIP_FLAG] && !(get_user_flags(id) & VIP_FLAG))
 					{
-						Set_Hat(id, 0, id)
-						PrintChatColor(id, _, "!g[%s] !yЭта шапка доступна только для VIP игроков", PLUG_NAME)
+						set_hat(id, 0, id)
+						client_print_color(id, print_team_red, "^4[%s] ^3%L", PLUGIN, id, "HAT_ONLY_VIP")
 					}
 					else
-						Set_Hat(id, i, id, str_to_num(smodelpart))
+						set_hat(id, i, id, str_to_num(szHatPart))
+
+					break
 				}
 			}
 		}
@@ -109,456 +152,510 @@ public client_disconnect(id)
 public client_disconnected(id)
 #endif
 {
-	Remove_Hat(id)
+	remove_hat(id)
 }
 
-public fw_PlayerSpawn_Post(id)
+public fw_PlayerSpawn_Post(const id)
 {
-	if (!UserHatId[id] || !is_user_alive(id))
+	if (!g_ePlayerData[id][PLR_HAT_ID] || !is_user_alive(id))
 		return HAM_IGNORED
 
-	if (HATNAME[UserHatId[id]][HATVIP[UserHatId[id]]] != 't')
+	new iHatId = g_ePlayerData[id][PLR_HAT_ID]
+
+	if (g_eHatData[iHatId][HAT_NAME][g_eHatData[iHatId][HAT_VIP_FLAG]] != 't')
 		return HAM_IGNORED
-		
-	if (HATBODIES[UserHatId[id]] > 1)
-		set_pev(g_bwEnt[id], pev_body, get_pdata_int(id, 114) == 2 ? 1 : 0)
+
+	if (g_eHatData[iHatId][HAT_BODIES_NUM] > 1)
+		set_pev(g_ePlayerData[id][PLR_HAT_ENT], pev_body, get_pdata_int(id, 114) == 2)
 	
-	if (HATSKINS[UserHatId[id]] > 1)
-		set_pev(g_bwEnt[id], pev_skin, get_pdata_int(id, 114) == 2 ? 1 : 0)
+	if (g_eHatData[iHatId][HAT_SKINS_NUM] > 1)
+		set_pev(g_ePlayerData[id][PLR_HAT_ENT], pev_skin, get_pdata_int(id, 114) == 2)
 		
 	return HAM_IGNORED
 }
 
-public ShowMenu(id)
+public cmd_show_menu(id)
 {
-	CurrentMenu[id] = 1
-	ShowHats(id)
+	g_ePlayerData[id][PLR_CURRENT_PAGE] = 1
+	show_hats(id)
 	return PLUGIN_HANDLED
 }
 
-public ShowHats(id)
-{	
-	new keys = (1<<0|1<<1|1<<2|1<<3|1<<4|1<<5|1<<6|1<<7|1<<8|1<<9)
-	
-	new szMenuBody[MENUSIZE + 1], HatID
-	new nLen = format(szMenuBody, MENUSIZE, "\yHat Menu: [%i/%i]^n", CurrentMenu[id], MenuPages)
-	
-	// Get Hat Names And Add Them To The List
-	for (new i = 0; i < 8; i++)
+public cmd_give_hat(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+		return PLUGIN_CONTINUE
+
+	new szPlayerName[32], szHatId[3], szPartId[3]
+	read_argv(1, szPlayerName, 31)
+	read_argv(2, szHatId, 2)
+	read_argv(3, szPartId, 2)
+		
+	new iTarget = cmd_target(id, szPlayerName, CMDTARGET_ALLOW_SELF)
+
+	if (!iTarget)
 	{
-		HatID = ((CurrentMenu[id] * 8) + i - 8)
-		if (HatID < TotalHats)
-		{
-			new hatText[512], prefix
-			if(HatID > 0)
-			{				
-				switch(HATNAME[HatID][HATVIP[HatID]])
-				{
-					case 's': prefix = HATSKINS[HatID] > 1 ? 1 : 0
-					case 'b': prefix = HATBODIES[HatID] > 1 ? 2 : 0
-					case 'c': prefix = HATBODIES[HatID] > 1 ? 2 : HATSKINS[HatID] > 1 ? 1 : 0 // if bodies > 1 then postfix = 2, else if skins > 1 then postfix = 1, else postfix = 0
-					case 't': prefix = (HATBODIES[HatID] > 1 || HATSKINS[HatID] > 1) ? 3 : 0
-					default: prefix = 0
-				}
-								
-				if(HATVIP[HatID])
-				{
-					if(!prefix)
-						format(hatText, charsmax(hatText), "\r[VIP] \y%s", HATNAME[HatID][1])
-					else if (prefix == 3)
-						format(hatText, charsmax(hatText), "\r[VIP] \y%s \w[\r%s\w]", HATNAME[HatID][2], HATBODIES[HatID] > 1 ? "модель команды" : "цвет команды") 
-					else
-						format(hatText, charsmax(hatText), "\r[VIP] \y%s \w[\r%s\w]", HATNAME[HatID][2], prefix == 1 ? "выбрать скин" : "выбрать модель") 
-				}
-				else
-				{
-					if(!prefix)
-						format(hatText, charsmax(hatText), "\y%s", HATNAME[HatID])
-					else if (prefix == 3)
-						format(hatText, charsmax(hatText), "\y%s \w[\r%s\w]", HATNAME[HatID][1], HATBODIES[HatID] > 1 ? "модель команды" : "цвет команды") 
-					else
-						format(hatText, charsmax(hatText), "\y%s \w[\r%s\w]", HATNAME[HatID][1], prefix == 1 ? "выбрать скин" : "выбрать модель") 
-				}
-			}
-			else
-				format(hatText, charsmax(hatText), "\r%s", HATNAME[HatID])
-			nLen += format(szMenuBody[nLen], MENUSIZE - nLen, "^n\w %i. %s", i + 1, hatText)
-		}
+		client_print(id, print_console, "[%s] %L", PLUGIN, id, "HAT_NICK_NOT_FOUND")
+		return PLUGIN_HANDLED
 	}
 	
-	// Next Page And Previous/Close
-	nLen += format(szMenuBody[nLen], MENUSIZE - nLen, "^n^n%s", CurrentMenu[id] == MenuPages ? "\d9. Вперед" : "\w9. Вперед")
-	nLen += format(szMenuBody[nLen], MENUSIZE - nLen, "^n\w0. %s", CurrentMenu[id] > 1 ? "Назад" : "Выход")
+	new iHatId = str_to_num(szHatId)
 	
-	show_menu(id, keys, szMenuBody, -1)
+	if (iHatId >= g_iTotalHats)
+		return PLUGIN_HANDLED
+			
+	set_hat(iTarget, iHatId, id, str_to_num(szPartId))
 	return PLUGIN_HANDLED
 }
 
-public MenuCommand(id, key) 
+public cmd_remove_all_hats(id, level, cid)
 {
-	switch(key)
+	if (!cmd_access(id, level, cid, 1))
+		return PLUGIN_CONTINUE
+
+	for (new i = 1; i <= get_maxplayers(); i++)
+		if (is_user_connected(i))
+			remove_hat(i)
+	
+	client_print(id, print_console, "[%s] %L", PLUGIN, id, "HAT_ALL_REMOVED")
+	return PLUGIN_HANDLED
+}
+
+show_hats(id)
+{	
+	new iKeys = 1<<9
+	
+	new szMenuBody[MENU_SIZE + 1], iHatId, szMenuItem[256], iPostfix,
+		iLen = format(szMenuBody, MENU_SIZE, "\yHat Menu: [%i/%i]^n", g_ePlayerData[id][PLR_CURRENT_PAGE], g_iPagesNum)
+	
+	for (new i = 0; i < 8; i++)
+	{
+		iHatId = ((g_ePlayerData[id][PLR_CURRENT_PAGE] * 8) + i - 8)
+		if (iHatId >= g_iTotalHats)
+			break
+
+		if (iHatId > 0)
+		{				
+			switch (g_eHatData[iHatId][HAT_NAME][g_eHatData[iHatId][HAT_VIP_FLAG]])
+			{
+				case 's': iPostfix = g_eHatData[iHatId][HAT_SKINS_NUM] > 1 ? 1 : 0
+				case 'b': iPostfix = g_eHatData[iHatId][HAT_BODIES_NUM] > 1 ? 2 : 0
+				case 'c': iPostfix = g_eHatData[iHatId][HAT_BODIES_NUM] > 1 ? 2 : g_eHatData[iHatId][HAT_SKINS_NUM] > 1 ? 1 : 0 // if bodies > 1 then postfix = 2, else if skins > 1 then postfix = 1, else postfix = 0
+				case 't': iPostfix = (g_eHatData[iHatId][HAT_BODIES_NUM] > 1 || g_eHatData[iHatId][HAT_SKINS_NUM] > 1) ? 3 : 0
+				default: iPostfix = 0
+			}
+							
+			if (g_eHatData[iHatId][HAT_VIP_FLAG])
+			{
+				if (!iPostfix)
+					format(szMenuItem, charsmax(szMenuItem), "\r[VIP] \y%s",
+						g_eHatData[iHatId][HAT_NAME][1])
+				else if (iPostfix == 3)
+					format(szMenuItem, charsmax(szMenuItem), "\r[VIP] \y%s \w[\r%L\w]",
+						g_eHatData[iHatId][HAT_NAME][2], id, g_eHatData[iHatId][HAT_BODIES_NUM] > 1 ? "HAT_POSTFIX_TEAM_MODEL" : "HAT_POSTFIX_TEAM_COLOR") 
+				else
+					format(szMenuItem, charsmax(szMenuItem), "\r[VIP] \y%s \w[\r%L\w]",
+						g_eHatData[iHatId][HAT_NAME][2], id, iPostfix == 1 ? "HAT_POSTFIX_SKIN" : "HAT_POSTFIX_MODEL") 
+			}
+			else
+			{
+				if (!iPostfix)
+					format(szMenuItem, charsmax(szMenuItem), "\y%s",
+						g_eHatData[iHatId][HAT_NAME])
+				else if (iPostfix == 3)
+					format(szMenuItem, charsmax(szMenuItem), "\y%s \w[\r%L\w]",
+						g_eHatData[iHatId][HAT_NAME][1], id, g_eHatData[iHatId][HAT_BODIES_NUM] > 1 ? "HAT_POSTFIX_TEAM_MODEL" : "HAT_POSTFIX_TEAM_COLOR") 
+				else
+					format(szMenuItem, charsmax(szMenuItem), "\y%s \w[\r%L\w]",
+						g_eHatData[iHatId][HAT_NAME][1], id, iPostfix == 1 ? "HAT_POSTFIX_SKIN" : "HAT_POSTFIX_MODEL") 
+			}
+		}
+		else
+			format(szMenuItem, charsmax(szMenuItem), "\r%L", id, g_eHatData[iHatId][HAT_NAME])
+
+		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n\w %i. %s", i + 1, szMenuItem)
+		iKeys |= 1<<i
+	}
+	
+	if (g_ePlayerData[id][PLR_CURRENT_PAGE] < g_iPagesNum)
+	{
+		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n^n\d9. %L", id, "HAT_ITEM_NEXT")
+		iKeys |= 1<<8
+	}
+	else
+		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n^n\d9. %L", id, "HAT_ITEM_NEXT")
+	
+	iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n\w0. %L", id, g_ePlayerData[id][PLR_CURRENT_PAGE] > 1 ? "HAT_ITEM_PREV" : "HAT_ITEM_EXIT")
+	
+	show_menu(id, iKeys, szMenuBody, -1)
+	return PLUGIN_HANDLED
+}
+
+show_skins(id)
+{		
+	new iHatId = g_ePlayerData[id][PLR_SUB_ID]
+	new iKeys = 1<<9
+	
+	new szMenuBody[MENU_SIZE + 1], iSkinId,
+		iLen = format(szMenuBody, MENU_SIZE, "\yHat Skin (%s): [%i/%i]^n",
+			g_eHatData[iHatId][HAT_NAME][g_eHatData[iHatId][HAT_VIP_FLAG] + 1], g_ePlayerData[id][PLR_CURRENT_SUBPAGE], g_ePlayerData[id][PLR_MENU_PAGES])
+				
+	for (new i = 0; i < 8; i++)
+	{
+		iSkinId = ((g_ePlayerData[id][PLR_CURRENT_SUBPAGE] * 8) + i - 8)
+		if (iSkinId >= g_eHatData[iHatId][HAT_SKINS_NUM])
+			break
+		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n\w %i. \ySkin %i", i + 1, iSkinId)
+		iKeys |= 1<<i
+	}
+
+	if (g_ePlayerData[id][PLR_CURRENT_SUBPAGE] < g_ePlayerData[id][PLR_MENU_PAGES])
+	{
+		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n^n\d9. %L", id, "HAT_ITEM_NEXT")
+		iKeys |= 1<<8
+	}
+	else
+		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n^n\d9. %L", id, "HAT_ITEM_NEXT")
+	
+	iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n\w0. %L", id, g_ePlayerData[id][PLR_CURRENT_SUBPAGE] > 1 ? "HAT_ITEM_PREV" : "HAT_ITEM_EXIT")
+
+	show_menu(id, iKeys, szMenuBody, -1)
+}
+
+show_bodies(id)
+{
+	new iHatId = g_ePlayerData[id][PLR_SUB_ID]
+	new iKeys = 1<<9
+	
+	new szMenuBody[MENU_SIZE + 1], iBodyId,
+		iLen = format(szMenuBody, MENU_SIZE, "\yHat Model (%s): [%i/%i]^n",
+			g_eHatData[iHatId][HAT_NAME][g_eHatData[iHatId][HAT_VIP_FLAG] + 1], g_ePlayerData[id][PLR_CURRENT_SUBPAGE], g_ePlayerData[id][PLR_MENU_PAGES])
+								
+	for (new i = 0; i < 8; i++)
+	{
+		iBodyId = ((g_ePlayerData[id][PLR_CURRENT_SUBPAGE] * 8) + i - 8)
+		if (iBodyId >= g_eHatData[iHatId][HAT_BODIES_NUM])
+			break
+		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n\w %i. \y%s", i + 1,
+			g_eHatData[iHatId][HAT_BODIES_NAMES][iBodyId * NAME_LEN])
+		iKeys |= 1<<i
+	}
+	
+	if (g_ePlayerData[id][PLR_CURRENT_SUBPAGE] < g_ePlayerData[id][PLR_MENU_PAGES])
+	{
+		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n^n\d9. %L", id, "HAT_ITEM_NEXT")
+		iKeys |= 1<<8
+	}
+	else
+		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n^n\d9. %L", id, "HAT_ITEM_NEXT")
+	
+	iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n\w0. %L", id, g_ePlayerData[id][PLR_CURRENT_SUBPAGE] > 1 ? "HAT_ITEM_PREV" : "HAT_ITEM_EXIT")
+				
+	show_menu(id, iKeys, szMenuBody, -1)	
+}
+
+public menu_handler(id, iKey) 
+{
+	switch (iKey)
 	{
 		case 8: //9 - [Next Page]
 		{
-			if(CurrentMenu[id] < MenuPages) CurrentMenu[id]++
-			ShowHats(id)
+			g_ePlayerData[id][PLR_CURRENT_PAGE]++
+			show_hats(id)
 		}
 		case 9:	//0 - [Close]
 		{
-			CurrentMenu[id]--
-			if(CurrentMenu[id] > 0)
-				ShowHats(id)
+			if(--g_ePlayerData[id][PLR_CURRENT_PAGE] > 0)
+				show_hats(id)
 		}
 		default:
 		{
-			new HatID = ((CurrentMenu[id] * 8) + key - 8)
-			if(HatID >= TotalHats) 
+			new iHatId = ((g_ePlayerData[id][PLR_CURRENT_PAGE] * 8) + iKey - 8)
+			
+			if (g_eHatData[iHatId][HAT_VIP_FLAG] && !(get_user_flags(id) & VIP_FLAG))
 			{
-				ShowHats(id)
+				client_print_color(id, print_team_red, "^4[%s] ^3%L", PLUGIN, id, "HAT_ONLY_VIP")
+				show_hats(id)
 				return PLUGIN_HANDLED
 			}
 			
-			if(HATVIP[HatID] && !(get_user_flags(id) & VIP_FLAG))
+			new iPostfix
+			switch (g_eHatData[iHatId][HAT_NAME][g_eHatData[iHatId][HAT_VIP_FLAG]])
 			{
-				PrintChatColor(id, _, "!g[%s] !yЭта шапка доступна только для VIP игроков", PLUG_NAME)
-				ShowHats(id)
-				return PLUGIN_HANDLED
+				case 's': iPostfix = g_eHatData[iHatId][HAT_SKINS_NUM] > 1 ? 1 : 0
+				case 'b': iPostfix = g_eHatData[iHatId][HAT_BODIES_NUM] > 1 ? 2 : 0
+				case 'c': iPostfix = g_eHatData[iHatId][HAT_BODIES_NUM] > 1 ? 2 : g_eHatData[iHatId][HAT_SKINS_NUM] > 1 ? 1 : 0
+				case 't': iPostfix = (g_eHatData[iHatId][HAT_BODIES_NUM] > 1 || g_eHatData[iHatId][HAT_SKINS_NUM] > 1) ? 3 : 0
+				default: iPostfix = 0
 			}
 			
-			new prefix
-			switch(HATNAME[HatID][HATVIP[HatID]])
-			{
-				case 's': prefix = HATSKINS[HatID] > 1 ? 1 : 0
-				case 'b': prefix = HATBODIES[HatID] > 1 ? 2 : 0
-				case 'c': prefix = HATBODIES[HatID] > 1 ? 2 : HATSKINS[HatID] > 1 ? 1 : 0
-				case 't': prefix = (HATBODIES[HatID] > 1 || HATSKINS[HatID] > 1) ? 3 : 0
-				default: prefix = 0
-			}
-			
-			switch (prefix)
+			switch (iPostfix)
 			{
 				case 1:
 				{
-					CurrentSubMenu[id] = 1
-					CurrentSubPages[id] = floatround(((HATSKINS[HatID] + 1) / 8.0), floatround_ceil)
-					CurrentSubId[id] = HatID
-					ShowSkins(id)
+					g_ePlayerData[id][PLR_CURRENT_SUBPAGE] = 1
+					g_ePlayerData[id][PLR_MENU_PAGES] = floatround(((g_eHatData[iHatId][HAT_SKINS_NUM] + 1) / 8.0), floatround_ceil)
+					g_ePlayerData[id][PLR_SUB_ID] = iHatId
+					show_skins(id)
 				}
 				case 2:
 				{
-					CurrentSubMenu[id] = 1
-					CurrentSubPages[id] = floatround(((HATBODIES[HatID] + 1) / 8.0), floatround_ceil)
-					CurrentSubId[id] = HatID
-					ShowBodies(id)
+					g_ePlayerData[id][PLR_CURRENT_SUBPAGE] = 1
+					g_ePlayerData[id][PLR_MENU_PAGES] = floatround(((g_eHatData[iHatId][HAT_BODIES_NUM] + 1) / 8.0), floatround_ceil)
+					g_ePlayerData[id][PLR_SUB_ID] = iHatId
+					show_bodies(id)
 				}
-				case 3: Set_Hat(id, HatID, id, get_pdata_int(id, 114) == 2 ? 1 : 0)
-				default: Set_Hat(id, HatID, id)
+				case 3: set_hat(id, iHatId, id, get_pdata_int(id, 114) == 2)
+				default: set_hat(id, iHatId, id)
 			}				
 		}
 	}
 	return PLUGIN_HANDLED
 }
 
-public ShowSkins(id)
-{		
-	new HatID = CurrentSubId[id]
-	new keys = (1<<0|1<<1|1<<2|1<<3|1<<4|1<<5|1<<6|1<<7|1<<8|1<<9)
-	
-	new szMenuBody[MENUSIZE + 1], SkinID
-	new nLen = format(szMenuBody, MENUSIZE, "\yHat Skin (%s): [%i/%i]^n", HATNAME[HatID][HATVIP[HatID] + 1], CurrentSubMenu[id], CurrentSubPages[id])
-				
-	for (new i = 0; i < 8; i++)
-	{
-		SkinID = ((CurrentSubMenu[id] * 8) + i - 8)
-		if(SkinID < HATSKINS[HatID])
-			nLen += format(szMenuBody[nLen], MENUSIZE - nLen, "^n\w %i. \yСкин %i", i + 1, SkinID)
-	}
-	
-	// Next Page And Previous/Close
-	nLen += format(szMenuBody[nLen], MENUSIZE - nLen, "^n^n%s", CurrentSubMenu[id] == CurrentSubPages[id] ? "\d9. Вперед" : "\w9. Вперед")
-	nLen += format(szMenuBody[nLen], MENUSIZE - nLen, "^n\w0. %s", CurrentSubMenu[id] > 1 ? "Назад" : "Выход")
-				
-	show_menu(id, keys, szMenuBody, -1)
-}
-
-public SkinMenuCommand(id, key) 
+public menu_skins_handler(id, iKey) 
 {
-	switch(key)
+	switch (iKey)
 	{
 		case 8: //9 - [Next Page]
 		{
-			if(CurrentSubMenu[id] < CurrentSubPages[id]) CurrentSubMenu[id]++
-			ShowSkins(id)
+			g_ePlayerData[id][PLR_CURRENT_SUBPAGE]++
+			show_skins(id)
 		}
 		case 9:	//0 - [Close]
 		{
-			CurrentSubMenu[id]--
-			if(CurrentSubMenu[id] > 0) ShowSkins(id)
-			else ShowHats(id)
+			if(--g_ePlayerData[id][PLR_CURRENT_SUBPAGE] > 0)
+				show_skins(id)
+			else
+				show_hats(id)
 		}
 		default:
 		{	
-			new SkinID = ((CurrentSubMenu[id] * 8) + key - 8)
-			new HatID = CurrentSubId[id]
-			if(SkinID >= HATSKINS[HatID]) ShowSkins(id)
-			else Set_Hat(id, HatID, id, SkinID)
+			new iSkinId = ((g_ePlayerData[id][PLR_CURRENT_SUBPAGE] * 8) + iKey - 8)
+			new iHatId = g_ePlayerData[id][PLR_SUB_ID]
+			set_hat(id, iHatId, id, iSkinId)
 		}
 	}
 	return PLUGIN_HANDLED
 }
 
-public ShowBodies(id)
+public menu_bodies_handler(id, iKey) 
 {
-	new HatID = CurrentSubId[id]
-	new keys = (1<<0|1<<1|1<<2|1<<3|1<<4|1<<5|1<<6|1<<7|1<<8|1<<9)
-	
-	new szMenuBody[MENUSIZE + 1], BodyID
-	new nLen = format(szMenuBody, MENUSIZE, "\yHat Model (%s): [%i/%i]^n", HATNAME[HatID][HATVIP[HatID] + 1], CurrentSubMenu[id], CurrentSubPages[id])
-								
-	for (new i = 0; i < 8; i++)
-	{
-		BodyID = ((CurrentSubMenu[id] * 8) + i - 8)
-		if(BodyID < HATBODIES[HatID])
-			nLen += format(szMenuBody[nLen], MENUSIZE - nLen, "^n\w %i. \y%s", i + 1, HATBODIESNAME[HatID][BodyID])
-	}
-	
-	// Next Page And Previous/Close
-	nLen += format(szMenuBody[nLen], MENUSIZE - nLen, "^n^n%s", CurrentSubMenu[id] == CurrentSubPages[id] ? "\d9. Вперед" : "\w9. Вперед")
-	nLen += format(szMenuBody[nLen], MENUSIZE - nLen, "^n\w0. %s", CurrentSubMenu[id] > 1 ? "Назад" : "Выход")
-				
-	show_menu(id, keys, szMenuBody, -1)	
-}
-
-public BodyMenuCommand(id, key) 
-{
-	switch(key)
+	switch(iKey)
 	{
 		case 8: //9 - [Next Page]
 		{
-			if(CurrentSubMenu[id] < CurrentSubPages[id]) CurrentSubMenu[id]++
-			ShowBodies(id)
+			g_ePlayerData[id][PLR_CURRENT_SUBPAGE]++
+			show_bodies(id)
 		}
 		case 9:	//0 - [Close]
 		{
-			CurrentSubMenu[id]--
-			if(CurrentSubMenu[id] > 0) ShowBodies(id)
-			else ShowHats(id)
+			if(--g_ePlayerData[id][PLR_CURRENT_SUBPAGE] > 0)
+				show_bodies(id)
+			else
+				show_hats(id)
 		}
 		default:
 		{			
-			new BodyID = ((CurrentSubMenu[id] * 8) + key - 8)
-			new HatID = CurrentSubId[id]
-			if(BodyID >= HATBODIES[HatID]) ShowBodies(id)
-			else Set_Hat(id, HatID, id, BodyID)
+			new iBodyId = ((g_ePlayerData[id][PLR_CURRENT_SUBPAGE] * 8) + iKey - 8)
+			new iHatId = g_ePlayerData[id][PLR_SUB_ID]
+			set_hat(id, iHatId, id, iBodyId)
 		}
 	}
 	return PLUGIN_HANDLED
 }
 
-public Give_Hat(id)
+remove_hat(const id)
 {
-	new smodelnum[5], name[32], smodelpart[2]
-	read_argv(1, name, 31)
-	read_argv(2, smodelnum, 4)
-	read_argv(3, smodelpart, 2)
-		
-	new player = cmd_target(id, name, 2)
-	if (!player)
-	{
-		PrintChatColor(id, _, "!g[%s] !yИгрок с таким именем не найден", PLUG_NAME)
-		return PLUGIN_HANDLED
-	}
-	
-	new imodelnum = str_to_num(smodelnum)
-	
-	if(imodelnum >= TotalHats)
-		return PLUGIN_HANDLED
-			
-	Set_Hat(player, imodelnum, id, str_to_num(smodelpart))
+	if (g_ePlayerData[id][PLR_HAT_ENT])
+		engfunc(EngFunc_RemoveEntity, g_ePlayerData[id][PLR_HAT_ENT])
 
-	return PLUGIN_CONTINUE
+	g_ePlayerData[id][PLR_HAT_ENT] = 0
+	g_ePlayerData[id][PLR_HAT_ID] = 0
 }
 
-public Remove_Hat(id)
-{
-	if(g_bwEnt[id] > 0) engfunc(EngFunc_RemoveEntity, g_bwEnt[id])
-	g_bwEnt[id] = 0
-	UserHatId[id] = 0
-}
-
-public Remove_All_Hat(id)
-{
-	for(new i = 0; i < get_maxplayers(); ++i)
-		if(is_user_connected(i))
-			Remove_Hat(i)
-	
-	client_print(id, print_chat, "[%s] Removed hats from everyone.", PLUG_NAME)
-	return PLUGIN_CONTINUE
-}
-
-stock Set_Hat(player, imodelnum, targeter, part = 0)
+set_hat(id, iHatId, iSender, iPart = 0)
 {
 	new iReturn = PLUGIN_CONTINUE
 	
-	if(HATVIP[imodelnum] && !(get_user_flags(player) & VIP_FLAG))
+	if (g_eHatData[iHatId][HAT_VIP_FLAG] && !(get_user_flags(id) & VIP_FLAG))
 	{
-		PrintChatColor(player, _, "!g[%s] !yЭта шапка доступна только для VIP игроков", PLUG_NAME)
+		client_print_color(iSender, print_team_red, "^4[%s] ^3%L", PLUGIN, iSender, "HAT_ONLY_VIP")
 		return 0
 	}
 	
-	if(imodelnum == 0)
+	if (iHatId == 0)
 	{
-		Remove_Hat(player)
+		remove_hat(id)
 
-		PrintChatColor(targeter, _, "!g[%s] !yВы сняли шапку", PLUG_NAME)
-		ExecuteForward(forward_change_hat, iReturn, player, 0)
+		client_print_color(iSender, print_team_red, "^4[%s] ^3%L", PLUGIN, iSender, "HAT_REMOVE")
+
+		ExecuteForward(g_fwChangeHat, iReturn, id, 0)
+
+		new szKey[64], szAuthid[24]
+
+		get_user_authid(id, szAuthid, 23)
 		
-		client_cmd(player, "setinfo ^"next21_hat^" ^"!NULL^"")
-		client_cmd(player, "setinfo ^"next21_hat_part^" ^"0^"")
-		
+		formatex(szKey, 63, "%s%s", szAuthid, KEY_HAT_MODEL)
+		nvault_set(g_vaultHat, szKey, "!NULL")
+			
+		formatex(szKey, 63, "%s%s", szAuthid, KEY_HAT_PART)
+		nvault_set(g_vaultHat, szKey, "0")
+
 		return 0
 	}
 	
-	if(g_bwEnt[player] < 1)
+	if (g_ePlayerData[id][PLR_HAT_ENT] < 1)
 	{
-		g_bwEnt[player] = engfunc(EngFunc_CreateNamedEntity, g_InfoTarget)
-		if(g_bwEnt[player] < 1)
+		g_ePlayerData[id][PLR_HAT_ENT] = engfunc(EngFunc_CreateNamedEntity, g_infoTarget)
+		if (g_ePlayerData[id][PLR_HAT_ENT] < 1)
 			return 0
 											
-		set_pev(g_bwEnt[player], pev_movetype, MOVETYPE_FOLLOW)
-		set_pev(g_bwEnt[player], pev_aiment, player)
-		set_pev(g_bwEnt[player], pev_rendermode, kRenderNormal)
-		set_pev(g_bwEnt[player], pev_renderamt, 0.0)
+		set_pev(g_ePlayerData[id][PLR_HAT_ENT], pev_movetype, MOVETYPE_FOLLOW)
+		set_pev(g_ePlayerData[id][PLR_HAT_ENT], pev_aiment, id)
+		set_pev(g_ePlayerData[id][PLR_HAT_ENT], pev_rendermode, kRenderNormal)
+		set_pev(g_ePlayerData[id][PLR_HAT_ENT], pev_renderamt, 0.0)
 	}
 
-	ExecuteForward(forward_change_hat, iReturn, player, g_bwEnt[player])	
-	UserHatId[player] = imodelnum
+	ExecuteForward(g_fwChangeHat, iReturn, id, g_ePlayerData[id][PLR_HAT_ENT])	
+	g_ePlayerData[id][PLR_HAT_ID] = iHatId
 		
-	new mdlName[256]
-	formatex(mdlName, charsmax(mdlName), "%s/%s", HATS_PATH, HATMDL[imodelnum])	
-	engfunc(EngFunc_SetModel, g_bwEnt[player], mdlName)
+	new szModelName[256]
+	formatex(szModelName, 255, "%s/%s", HATS_PATH, g_eHatData[iHatId][HAT_MODEL])	
+	engfunc(EngFunc_SetModel, g_ePlayerData[id][PLR_HAT_ENT], szModelName)
 	
-	new skin, body, prefix
-	switch(HATNAME[imodelnum][HATVIP[imodelnum]])
+	new iSkin, iBody, iPrefix
+	switch (g_eHatData[iHatId][HAT_NAME][g_eHatData[iHatId][HAT_VIP_FLAG]])
 	{
 		case 's':
 		{
-			skin = part < HATSKINS[imodelnum] ? part : 0
-			body = 0
-			prefix = HATSKINS[imodelnum] > 1 ? 1 : 0
+			iSkin = iPart < g_eHatData[iHatId][HAT_SKINS_NUM] ? iPart : 0
+			iBody = 0
+			iPrefix = g_eHatData[iHatId][HAT_SKINS_NUM] > 1 ? 1 : 0
 		}
 		case 'b':
 		{
-			skin = 0
-			body = part < HATBODIES[imodelnum] ? part : 0
-			prefix = HATBODIES[imodelnum] > 1 ? 2 : 0
+			iSkin = 0
+			iBody = iPart < g_eHatData[iHatId][HAT_BODIES_NUM] ? iPart : 0
+			iPrefix = g_eHatData[iHatId][HAT_BODIES_NUM] > 1 ? 2 : 0
 		}
 		case 'c':
 		{
-			skin = part < HATSKINS[imodelnum] ? part : 0
-			body = part < HATBODIES[imodelnum] ? part : 0
-			prefix = HATBODIES[imodelnum] > 1 ? 2 : HATSKINS[imodelnum] > 1 ? 1 : 0 // if bodies > 1 then postfix = 2, else if skins > 1 then postfix = 1, else postfix = 0
+			iSkin = iPart < g_eHatData[iHatId][HAT_SKINS_NUM] ? iPart : 0
+			iBody = iPart < g_eHatData[iHatId][HAT_BODIES_NUM] ? iPart : 0
+			iPrefix = g_eHatData[iHatId][HAT_BODIES_NUM] > 1 ? 2 : g_eHatData[iHatId][HAT_SKINS_NUM] > 1 ? 1 : 0
 		}
 		case 't':
 		{
-			skin = part < HATSKINS[imodelnum] ? part : 0
-			body = part < HATBODIES[imodelnum] ? part : 0
-			prefix = (HATBODIES[imodelnum] > 1 || HATSKINS[imodelnum] > 1) ? 3 : 0
+			iSkin = iPart < g_eHatData[iHatId][HAT_SKINS_NUM] ? iPart : 0
+			iBody = iPart < g_eHatData[iHatId][HAT_BODIES_NUM] ? iPart : 0
+			iPrefix = (g_eHatData[iHatId][HAT_BODIES_NUM] > 1 || g_eHatData[iHatId][HAT_SKINS_NUM] > 1) ? 3 : 0
 		}
 		default:
 		{
-			skin = 0
-			body = 0
-			prefix = 0
+			iSkin = 0
+			iBody = 0
+			iPrefix = 0
 		}
 	}
 	
-	switch(prefix)
+	switch (iPrefix)
 	{
-		case 0: PrintChatColor(targeter, _, "!g[%s] !yВы надели шапку !g%s", PLUG_NAME, HATNAME[imodelnum][HATVIP[imodelnum]])
-		case 1: PrintChatColor(targeter, _, "!g[%s] !yВы надели шапку !g%s !y(скин %i)", PLUG_NAME, HATNAME[imodelnum][HATVIP[imodelnum] + 1], skin)
-		case 2: PrintChatColor(targeter, _, "!g[%s] !yВы надели шапку !g%s", PLUG_NAME, HATBODIESNAME[imodelnum][body])
-		case 3: PrintChatColor(targeter, _, "!g[%s] !yВы надели шапку !g%s", PLUG_NAME, HATNAME[imodelnum][HATVIP[imodelnum] + 1])
+		case 0: client_print_color(iSender, print_team_red, "^4[%s] ^3%L ^4%s", PLUGIN, iSender, "HAT_SET", g_eHatData[iHatId][HAT_NAME][g_eHatData[iHatId][HAT_VIP_FLAG]])
+		case 1: client_print_color(iSender, print_team_red, "^4[%s] ^3%L ^4%s ^3(skin %i)", PLUGIN, iSender, "HAT_SET", g_eHatData[iHatId][HAT_NAME][g_eHatData[iHatId][HAT_VIP_FLAG] + 1], iSkin)
+		case 2: client_print_color(iSender, print_team_red, "^4[%s] ^3%L ^4%s", PLUGIN, iSender, "HAT_SET", g_eHatData[iHatId][HAT_BODIES_NAMES][iBody * NAME_LEN])
+		case 3: client_print_color(iSender, print_team_red, "^4[%s] ^3%L ^4%s", PLUGIN, iSender, "HAT_SET", g_eHatData[iHatId][HAT_NAME][g_eHatData[iHatId][HAT_VIP_FLAG] + 1])
 	}
-				
-	set_pev(g_bwEnt[player], pev_skin, skin)
-	set_pev(g_bwEnt[player], pev_body, body)
+
+	set_pev(g_ePlayerData[id][PLR_HAT_ENT], pev_skin, iSkin)
+	set_pev(g_ePlayerData[id][PLR_HAT_ENT], pev_body, iBody)
 	
-	set_pev(g_bwEnt[player], pev_sequence, body)
-	set_pev(g_bwEnt[player], pev_framerate, 1.0)
-	set_pev(g_bwEnt[player], pev_animtime, get_gametime())
-							
-	client_cmd(player, "setinfo ^"next21_hat^" ^"%s^"", HATMDL[imodelnum])
-	client_cmd(player, "setinfo ^"next21_hat_part^" ^"%i^"", part)
-	
-	return g_bwEnt[player]
+	set_pev(g_ePlayerData[id][PLR_HAT_ENT], pev_sequence, iBody)
+	set_pev(g_ePlayerData[id][PLR_HAT_ENT], pev_framerate, 1.0)
+	set_pev(g_ePlayerData[id][PLR_HAT_ENT], pev_animtime, get_gametime())
+								
+	new szKey[64], szValue[3], szAuthid[24]
+
+	get_user_authid(id, szAuthid, 23)
+
+	formatex(szKey, 63, "%s%s", szAuthid, KEY_HAT_MODEL)
+	nvault_set(g_vaultHat, szKey, g_eHatData[iHatId][HAT_MODEL])
+			
+	formatex(szKey, 63, "%s%s", szAuthid, KEY_HAT_PART)
+	formatex(szValue, 2, "%i", iPart)
+	nvault_set(g_vaultHat, szKey, szValue)
+
+	return g_ePlayerData[id][PLR_HAT_ENT]
 }
 
-command_load(HatFile[64])
+load_hats(const szHatFile[64])
 {
-	if(file_exists(HatFile))
+	if (file_exists(szHatFile))
 	{
-		HATMDL[0] = ""
-		HATNAME[0] = "Снять шапку"
-		TotalHats = 1
-		new sfLineData[128], file = fopen(HatFile, "rt"), tag
-		while(file && !feof(file))
+		g_eHatData[0][HAT_MODEL] = ""
+		g_eHatData[0][HAT_NAME] = "HAT_ITEM_REMOVE"
+		g_iTotalHats = 1
+
+		new szLineData[128], iFile = fopen(szHatFile, "rt"), iTag
+		while (iFile && !feof(iFile))
 		{
-			fgets(file,sfLineData,127)
+			fgets(iFile, szLineData, 127)
 			
-			// Skip Comment and Empty Lines
-			if (containi(sfLineData,";") > -1) continue
+			if (containi(szLineData, ";") > -1 || strlen(szLineData) < 7)
+				continue
 			
-			// BREAK IT UP!
-			parse(sfLineData, HATMDL[TotalHats], 40, HATNAME[TotalHats], 40)
+			parse(szLineData, g_eHatData[g_iTotalHats][HAT_MODEL], NAME_LEN - 1,
+				g_eHatData[g_iTotalHats][HAT_NAME], NAME_LEN - 1)
 			
-			new CurrFile[256]
-			formatex(CurrFile, charsmax(CurrFile), "%s/%s", HATS_PATH, HATMDL[TotalHats])
+			new szCurrentFile[256]
+			formatex(szCurrentFile, 255, "%s/%s", HATS_PATH, g_eHatData[g_iTotalHats][HAT_MODEL])
 				
-			if(!file_exists(CurrFile))
+			if (!file_exists(szCurrentFile))
 			{
-				server_print("[%s] Failed to precache %s", PLUG_NAME, CurrFile)
+				server_print("[%s] Failed to precache %s", PLUGIN, szCurrentFile)
 				continue
 			}
 			
-			if(HATNAME[TotalHats][0] == 'v')
+			if (g_eHatData[g_iTotalHats][HAT_NAME][0] == 'v')
 			{
-				tag = 1
-				HATVIP[TotalHats] = 1
+				iTag = 1
+				g_eHatData[g_iTotalHats][HAT_VIP_FLAG] = 1
 			}
 			else
-				tag = 0
+				iTag = 0
 				
-			if(HATNAME[TotalHats][tag] == 's' || HATNAME[TotalHats][tag] == 'b'
-				|| HATNAME[TotalHats][tag] == 'c' || HATNAME[TotalHats][tag] == 't')
+			if (g_eHatData[g_iTotalHats][HAT_NAME][iTag] == 's'
+				|| g_eHatData[g_iTotalHats][HAT_NAME][iTag] == 'b'
+				|| g_eHatData[g_iTotalHats][HAT_NAME][iTag] == 'c' 
+				|| g_eHatData[g_iTotalHats][HAT_NAME][iTag] == 't')
 			{								
-				new studiomodel = fopen(CurrFile, "rb"),			
-				bodypartindex, numbodyparts, nummodels
+				new studiomodel = fopen(szCurrentFile, "rb"),			
+					bodypartindex, numbodyparts, nummodels
 											
 				fseek(studiomodel, 196, SEEK_SET)
-				fread(studiomodel, HATSKINS[TotalHats], BLOCK_INT)
+				fread(studiomodel, g_eHatData[g_iTotalHats][HAT_SKINS_NUM], BLOCK_INT)
 						
 				fseek(studiomodel, 204, SEEK_SET)
 				fread(studiomodel, numbodyparts, BLOCK_INT)
 				fread(studiomodel, bodypartindex, BLOCK_INT)
 						
 				fseek(studiomodel, bodypartindex, SEEK_SET)
-				for(new i = 0; i < numbodyparts; i++)
+				for (new i = 0, j; i < numbodyparts; i++)
 				{
 					fseek(studiomodel, 64, SEEK_CUR)
 					fread(studiomodel, nummodels, BLOCK_INT)
 					fseek(studiomodel, 4, SEEK_CUR)
 					new modelindex; fread(studiomodel, modelindex, BLOCK_INT)
 										
-					if(nummodels > HATBODIES[TotalHats])
+					if (nummodels > g_eHatData[g_iTotalHats][HAT_BODIES_NUM])
 					{
-						HATBODIES[TotalHats] = nummodels
+						g_eHatData[g_iTotalHats][HAT_BODIES_NUM] = nummodels
 						
 						new nextpos = ftell(studiomodel)	
 						fseek(studiomodel, modelindex, SEEK_SET)
-						for(new j = 0; j < nummodels; j++)
+						for (j = 0; j < nummodels; j++)
 						{
-							fread_blocks(studiomodel, HATBODIESNAME[TotalHats][j], 64, BLOCK_CHAR)
+							fread_blocks(studiomodel, g_eHatData[g_iTotalHats][HAT_BODIES_NAMES][j * NAME_LEN], NAME_LEN, BLOCK_CHAR)
 							fseek(studiomodel, 48, SEEK_CUR)
 						}
 						fseek(studiomodel, nextpos, SEEK_SET)
@@ -569,29 +666,24 @@ command_load(HatFile[64])
 			}
 			
 			static wasSpawnReg
-			if (!wasSpawnReg && HATNAME[TotalHats][tag] == 't'
-				&& (HATSKINS[TotalHats] > 1 || HATBODIES[TotalHats] > 1))
+			if (!wasSpawnReg && g_eHatData[g_iTotalHats][HAT_NAME][iTag] == 't'
+				&& (g_eHatData[g_iTotalHats][HAT_SKINS_NUM] > 1 || g_eHatData[g_iTotalHats][HAT_BODIES_NUM] > 1))
 				{
 					RegisterHam(Ham_Spawn, "player", "fw_PlayerSpawn_Post", 1)
 					wasSpawnReg = 1
 				}
 				
-			
-			TotalHats++
-			if(TotalHats >= MAX_HATS)
+			if (++g_iTotalHats == MAX_HATS)
 			{
-				server_print("[%s] Reached hat limit", PLUG_NAME)
+				server_print("[%s] Reached hat limit", PLUGIN)
 				break
 			}
 		}
-		if(file) fclose(file)
+
+		if (iFile)
+			fclose(iFile)
 	}
 	
-	MenuPages = floatround((TotalHats / 8.0), floatround_ceil)
-	server_print("[%s] Loaded %i hats, Generated %i pages)", PLUG_NAME, TotalHats - 1, MenuPages)
-}
-
-public plugin_end()
-{
-	DestroyForward(forward_change_hat)
+	g_iPagesNum = floatround((g_iTotalHats / 8.0), floatround_ceil)
+	server_print("[%s] Loaded %i hats, Generated %i pages)", PLUGIN, g_iTotalHats - 1, g_iPagesNum)
 }
