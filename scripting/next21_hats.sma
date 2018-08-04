@@ -279,7 +279,7 @@ show_hats(id)
 	
 	if (g_ePlayerData[id][PLR_CURRENT_PAGE] < g_iPagesNum)
 	{
-		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n^n\d9. %L", id, "HAT_ITEM_NEXT")
+		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n^n\w9. %L", id, "HAT_ITEM_NEXT")
 		iKeys |= 1<<8
 	}
 	else
@@ -311,7 +311,7 @@ show_skins(id)
 
 	if (g_ePlayerData[id][PLR_CURRENT_SUBPAGE] < g_ePlayerData[id][PLR_MENU_PAGES])
 	{
-		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n^n\d9. %L", id, "HAT_ITEM_NEXT")
+		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n^n\w9. %L", id, "HAT_ITEM_NEXT")
 		iKeys |= 1<<8
 	}
 	else
@@ -343,7 +343,7 @@ show_bodies(id)
 	
 	if (g_ePlayerData[id][PLR_CURRENT_SUBPAGE] < g_ePlayerData[id][PLR_MENU_PAGES])
 	{
-		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n^n\d9. %L", id, "HAT_ITEM_NEXT")
+		iLen += format(szMenuBody[iLen], MENU_SIZE - iLen, "^n^n\w9. %L", id, "HAT_ITEM_NEXT")
 		iKeys |= 1<<8
 	}
 	else
