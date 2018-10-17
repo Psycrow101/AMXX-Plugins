@@ -4,8 +4,12 @@ https://next21.ru/2015/01/simple-adverts/
 
 #include <amxmodx>
 #include <amxmisc>
-#include <dhudmessage>
+#if AMXX_VERSION_NUM < 183
+	#include <dhudmessage>
+	#define client_disconnected client_disconnect
+#endif
 #include <fakemeta>
+
 
 enum _:CvarList
 {
@@ -37,7 +41,7 @@ g_iMaxPlayers, g_iArraySize, g_iConneted[32], g_msgSayText
 
 public plugin_init()
 {
-	register_plugin("Simple HUD Adverts", "1.0", "Oli Desu")
+	register_plugin("Simple HUD Adverts", "1.01", "Oli Desu")
 	
 	register_srvcmd("n21_ads_reset", "plugin_cfg", .info = "Reset adverts settings")
 	
@@ -87,7 +91,7 @@ public plugin_cfg()
 		while (!feof(pFile))
 		{
 			fgets(pFile, szLine, 127)
-			if(szLine[0] && szLine[0] != ';')
+			if (szLine[0] && szLine[0] != ';')
 			{
 				replace_all(szLine, 127, "%ip%", szIP)
 				replace_all(szLine, 127, "%hostname%", szHostname)
@@ -152,7 +156,7 @@ public plugin_cfg()
 public client_putinserver(id)
 	g_iConneted[id - 1] = 1
 	
-public client_disconnect(id)
+public client_disconnected(id)
 	g_iConneted[id - 1] = 0
 
 public show_advert()
@@ -205,35 +209,44 @@ public show_advert()
 			Float: g_pCvars[CVAR_FADETIME],
 			Float: g_pCvars[CVAR_FADEOUTTIME])		
 	}
+	
+	new iAliveState = g_pCvars[CVAR_ALIVE],
+		iTeamState = g_pCvars[CVAR_TEAM],
+		iPrintState = g_pCvars[CVAR_PRINTMODE],
+		iConsoleState = g_pCvars[CVAR_CONSOLE],
+		iUserAlive
+	
 		
 	for (new i = 1; i <= g_iMaxPlayers; i++)
 	{
 		if (!g_iConneted[i - 1])
 			continue
 		
-		if (g_pCvars[CVAR_ALIVE] == 1 && !is_user_alive(i))
+		iUserAlive = is_user_alive(i)
+		
+		if (iAliveState == 1 && !iUserAlive)
 			continue
 		
-		if (g_pCvars[CVAR_ALIVE] == 2 && is_user_alive(i))
+		if (iAliveState == 2 && iUserAlive)
 			continue
 				
-		if (g_pCvars[CVAR_TEAM] && g_pCvars[CVAR_TEAM] != get_pdata_int(i, 114))
+		if (iTeamState && iTeamState != get_pdata_int(i, 114))
 			continue
 		
 		get_user_name(i, szName, 127)
 		replace_all(szMessage, 127, "%name%", szName)
 		
-		switch (g_pCvars[CVAR_PRINTMODE])
+		switch (iPrintState)
 		{
 			case 1:
 			{
-				if (g_pCvars[CVAR_CONSOLE])
+				if (iConsoleState)
 					client_print(i, print_console, "%s", szMessage)	
 				show_hudmessage(i, szMessage)
 			}
 			case 2:
 			{
-				if (g_pCvars[CVAR_CONSOLE])
+				if (iConsoleState)
 					client_print(i, print_console, "%s", szMessage)	
 				show_dhudmessage(i, szMessage)
 			}
