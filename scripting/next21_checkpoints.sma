@@ -14,7 +14,7 @@ https://next21.ru/2013/06/deathrun-%D1%87%D0%B5%D0%BA%D0%BF%D0%BE%D0%B8%D0%BD%D1
 #endif
 
 #define PLUGIN "Checkpoints"
-#define VERSION "0.8"
+#define VERSION "0.81"
 #define AUTHOR "Psycrow"
 
 #define MODEL_CHECKPOINT			"models/next21_deathrun/checkpoint.mdl"
@@ -81,8 +81,11 @@ public plugin_init()
 	register_menu("Checkpoint Menu", MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_0,
 		"handler_checkpoint_menu")
 		
+	register_concmd("checkpoint", "show_checkpoint_menu", ACCESS_FLAG, "-Open Checkpoint Spawn Menu")
 	register_concmd("say /checkpoint", "show_checkpoint_menu", ACCESS_FLAG, "-Open Checkpoint Spawn Menu")
 	register_concmd("say_team /checkpoint", "show_checkpoint_menu", ACCESS_FLAG, "-Open Checkpoint Spawn Menu")
+	
+	AddMenuItem("Checkpoints Menu", "checkpoint", ACCESS_FLAG, PLUGIN)
 	
 	register_dictionary("next21_checkpoints.txt")
 	
@@ -262,7 +265,7 @@ set_finish_bodypart()
 	if (!g_iCheckpointsNum)	
 		return
 	
-	for (new i = 0; i < g_iCheckpointsNum - 1; i++)
+	for (new i; i < g_iCheckpointsNum - 1; i++)
 	{
 		set_pev(g_iCheckpoint[i], pev_body, 0)
 		set_pev(g_iCheckpoint[i], pev_skin, 0)
@@ -289,12 +292,12 @@ save_checkpoints()
 	if (!g_iCheckpointsNum)
 		return 0
 		
-	for (new i = 0; i < g_iCheckpointsNum; i++)
+	new szText[128], Float: fOrigin[3], Float: fAngles[3]
+	for (new i; i < g_iCheckpointsNum; i++)
 	{
-		new szText[128], Float: fOrigin[3], Float: fAngles[3]
 		pev(g_iCheckpoint[i], pev_origin, fOrigin)
 		pev(g_iCheckpoint[i], pev_angles, fAngles)
-		format(szText, 127, "^"%f^" ^"%f^" ^"%f^" ^"%f^"",
+		formatex(szText, 127, "^"%f^" ^"%f^" ^"%f^" ^"%f^"",
 			fOrigin[0], fOrigin[1], fOrigin[2], fAngles[2])
 		write_file(szFile, szText, -1)
 	}
@@ -319,7 +322,7 @@ display_checkpoint_menu(const id)
 	iLen = formatex(szMenu, 511, "\r%L \y[\w%i/%i\y]^n^n",
 		LANG_PLAYER, "MENU_HEADER", g_iCheckpointsNum, MAX_CHECKPOINTS)
 		
-	if (g_iCheckpointsNum != MAX_CHECKPOINTS)
+	if (g_iCheckpointsNum < MAX_CHECKPOINTS)
 	{
 		iLen += formatex(szMenu[iLen], 511 - iLen, "\r1. \w%L^n", id, "MENU_SPAWN")
 		iKeys |= MENU_KEY_1
@@ -378,7 +381,7 @@ public handler_checkpoint_menu(id, key)
 		}
 		case 3:
 		{
-			for (new i = 0; i < g_iCheckpointsNum; i++)
+			for (new i; i < g_iCheckpointsNum; i++)
 				engfunc(EngFunc_RemoveEntity, g_iCheckpoint[i])
 				
 			g_iCheckpointsNum = 0
@@ -492,7 +495,7 @@ public fw_TouchCheckpoint(const iEnt, const iPlayer)
 		}
 	}
 		
-	if (g_iPlrCompleted[iPlayer] >= iPos || !is_user_alive(iPlayer))
+	if (!is_user_alive(iPlayer) || g_iPlrCompleted[iPlayer] >= iPos)
 		return HAM_IGNORED
 		
 	new iSkipLimit = get_pcvar_num(g_pCvars[CVAR_CHECKPOINT_SKIP_LIMIT])
@@ -623,10 +626,7 @@ bool: check_stuck(const Float: fOrigin[3], const iPlayer)
 {
 	static tr
 	engfunc(EngFunc_TraceHull, fOrigin, fOrigin, 0, HULL_HUMAN, iPlayer, tr)
-		
-	if (!get_tr2(tr, TR_StartSolid) || !get_tr2(tr, TR_AllSolid))
-		return false
-	return true
+	return get_tr2(tr, TR_StartSolid) && get_tr2(tr, TR_AllSolid)
 }
 
 /*** Duel forwards ***/
