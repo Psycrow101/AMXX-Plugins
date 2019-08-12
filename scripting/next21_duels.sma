@@ -20,7 +20,7 @@ https://next21.ru/2013/07/%D0%BF%D0%BB%D0%B0%D0%B3%D0%B8%D0%BD-%D0%B4%D1%83%D1%8
 #endif
 
 #define PLUGIN "Duels"
-#define VERSION "0.75"
+#define VERSION "0.76"
 #define AUTHOR "Psycrow"
 
 #define SOUND_DUEL_ACCEPTED 		"next21_duels/duel_challenge_accepted.wav"
@@ -390,12 +390,12 @@ public duel_check_players(id)
 	}
 	
 	new menuName[64]
-	format(menuName, 63, "\r%L", id, "DUEL_HEADNAME")
+	formatex(menuName, 63, "\r%L", id, "DUEL_HEADNAME")
 	
-	new Players_Menu = menu_create(menuName, "duel_menu_handler")
+	new menu = menu_create(menuName, "duel_menu_handler")
 	new s_Name[24], s_Player[4], iEnemyTeam = Player[id][PlrTeam] == 2 ? 1 : 2
 		
-	for(new i = 1; i <= g_iMaxplayers; i++)
+	for (new i = 1; i <= g_iMaxplayers; i++)
 	{ 
 		if (!Player[i][PlrInServer] || Player[i][PlrTeam] != iEnemyTeam || is_user_hltv(i))
 			continue
@@ -406,7 +406,14 @@ public duel_check_players(id)
 		if (Player[i][PlrDuelReady] || Player[i][PlrDuelWaiting])
 			format(s_Name, 23, "\d%s", s_Name)
 		
-		menu_additem(Players_Menu, s_Name, s_Player, 0)
+		menu_additem(menu, s_Name, s_Player, 0)
+	}
+
+	if (!menu_items(menu))
+	{
+		menu_destroy(menu)
+		client_print_color(id, print_team_red, "^4[%s] ^3%L", PLUGIN, id, "DUEL_NOPLAYERS")
+		return
 	}
 	
 	new sMenuProp[3][16]
@@ -414,22 +421,22 @@ public duel_check_players(id)
 	format(sMenuProp[1], 15, "%L", id, "MENU_BACK")
 	format(sMenuProp[2], 15, "%L", id, "MENU_EXIT")
 	
-	menu_setprop(Players_Menu, MPROP_NEXTNAME, sMenuProp[0])
-	menu_setprop(Players_Menu, MPROP_BACKNAME, sMenuProp[1])
-	menu_setprop(Players_Menu, MPROP_EXITNAME, sMenuProp[2])
+	menu_setprop(menu, MPROP_NEXTNAME, sMenuProp[0])
+	menu_setprop(menu, MPROP_BACKNAME, sMenuProp[1])
+	menu_setprop(menu, MPROP_EXITNAME, sMenuProp[2])
 	
-	menu_display(id, Players_Menu, 0)
+	menu_display(id, menu, 0)
 }
 
 public duel_menu_handler(id, menu, item)
 {
-	if(item == MENU_EXIT)
+	if (item == MENU_EXIT)
 	{
 		menu_destroy(menu)
 		return PLUGIN_HANDLED
 	}
 	
-	if(!Player[id][PlrTeam] || Player[id][PlrTeam] == 3)
+	if (!Player[id][PlrTeam] || Player[id][PlrTeam] == 3)
 	{
 		client_print_color(id, print_team_red, "^4[%s] ^3%L", PLUGIN, id, "DUEL_WRONG_TEAM")
 		return PLUGIN_HANDLED	
@@ -474,9 +481,9 @@ public duel_menu_handler(id, menu, item)
 	new duel_Menu = menu_create(menuName, "duel_challenge_handler")
 	
 	new strMenuItem[64]
-	format(strMenuItem, 63, "\w%L", key, "DUEL_AGREE")
+	formatex(strMenuItem, 63, "\w%L", key, "DUEL_AGREE")
 	menu_additem(duel_Menu, strMenuItem, "1", 0)
-	format(strMenuItem, 63, "\w%L", key, "DUEL_REFUSE")
+	formatex(strMenuItem, 63, "\w%L", key, "DUEL_REFUSE")
 	menu_additem(duel_Menu, strMenuItem, "2", 0)
 	
 	menu_setprop(duel_Menu, MPROP_EXIT, -1)
