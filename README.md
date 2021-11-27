@@ -1,5 +1,5 @@
 # Plugins for AMX Mod X v1.8.2 CStrike
 
-Resources are available on https://next21.ru/
+This repository is deprecated and no longer supported. The newest plugins are available [here](https://github.com/orgs/Next21Team/repositories).
 
-All files in this repository are released under GNU General Public License v2.0. See [LICENSE](https://github.com/Psycrow101/AMXX-Plugins/blob/master/LICENSE) file for more information.
+Resources are available on https://next21.ru/
